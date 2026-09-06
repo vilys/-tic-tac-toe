@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<!-- 井字過三關 -->
+<!-- 開啟方式：雙擊這個 HTML 檔，或在資料夾跑 `python -m http.server` -->
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>井字過三關</title>
+  <style>
+    /* ===========================================================
+       v7：主題系統 — CSS 自訂屬性（custom properties）
+       :root = default theme; [data-theme="X"] = override
+       =========================================================== */
+    :root, [data-theme="default"] {
+      --bg: #ffffff;
+      --text: #333333;
+      --muted: #666666;
+      --cell-bg: #f0f0f0;
+      --cell-hover: #e0e0e0;
+      --x-color: #1e6fff;
+      --o-color: #e03030;
+      --accent: #1e6fff;
+      --accent-text: #ffffff;
+      --border: #999999;
+      --btn-bg: #ffffff;
+      --btn-hover: #f5f5f5;
+      --btn-text: #333333;
+      --win-bg: #fff3a0;
+      --win-line: #555555;
+      --score-overlay: #888888;
+      --minimax-text: #444444;
+    }
+    [data-theme="dark"] {
+      --bg: #1a1a1a;
+      --text: #e0e0e0;
+      --muted: #888888;
+      --cell-bg: #2d2d2d;
+      --cell-hover: #3d3d3d;
+      --x-color: #5a9aff;
+      --o-color: #ff6b6b;
+      --accent: #5a9aff;
+      --accent-text: #1a1a1a;
+      --border: #555555;
+      --btn-bg: #2d2d2d;
+      --btn-hover: #3d3d3d;
+      --btn-text: #e0e0e0;
+      --win-bg: #4a4a00;
+      --win-line: #cccccc;
+      --score-overlay: #aaaaaa;
+      --minimax-text: #cccccc;
+    }
+    [data-theme="ocean"] {
+      --bg: #e6f3ff;
+      --text: #0a3a5a;
+      --muted: #2a5a7a;
+      --cell-bg: #cce5ff;
+      --cell-hover: #b3daff;
+      --x-color: #0066aa;
+      --o-color: #0099cc;
+      --accent: #0080aa;
+      --accent-text: #ffffff;
+      --border: #5a8aaa;
+      --btn-bg: #ffffff;
+      --btn-hover: #d4ebff;
+      --btn-text: #0a3a5a;
+      --win-bg: #b3d9ff;
+      --win-line: #003355;
+      --score-overlay: #5a8aaa;
+      --minimax-text: #0a3a5a;
+    }
+    [data-theme="sunset"] {
+      --bg: #fff5e6;
+      --text: #5a2a0a;
+      --muted: #8a5a3a;
+      --cell-bg: #ffe0c4;
+      --cell-hover: #ffd4a8;
+      --x-color: #cc5500;
+      --o-color: #cc0066;
+      --accent: #cc5500;
+      --accent-text: #ffffff;
+      --border: #aa6a3a;
+      --btn-bg: #ffffff;
+      --btn-hover: #fff0d4;
+      --btn-text: #5a2a0a;
+      --win-bg: #ffcc99;
+      --win-line: #663300;
+      --score-overlay: #aa6a3a;
+      --minimax-text: #5a2a0a;
+    }
+
+    /* 最小可用樣式（樣式最後階段可 polish） */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", sans-serif;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 16px; padding: 24px; margin: 0;
+      background: var(--bg); color: var(--text);
+      transition: background 0.2s, color 0.2s;
+    }
+    h1 { margin: 0; font-size: 24px; }
+    .status { font-size: 18px; min-height: 28px; }
+    .score { font-size: 14px; color: var(--muted); }
+    .board {
+      display: grid; grid-template-columns: repeat(3, 80px);
+      grid-template-rows: repeat(3, 80px);
+      gap: 4px;
+    }
+    .cell {
+      background: var(--cell-bg); border: none; font-size: 40px;
+      cursor: pointer; padding: 0; font-family: inherit;
+      color: var(--text);
+    }
+    .cell:hover:not(:disabled) { background: var(--cell-hover); }
+    .cell:disabled { cursor: not-allowed; }
+    .cell.X { color: var(--x-color); }
+    .cell.O { color: var(--o-color); }
+
+    /* v5：Hover 半透明棋子預覽（玩家輪到時顯示在空格） */
+    .cell.preview::before {
+      content: attr(data-preview);
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 40px;
+      line-height: 1;
+      opacity: 0.15;
+      pointer-events: none;
+    }
+    .cell.preview[data-preview="X"]::before { color: var(--x-color); }
+    .cell.preview[data-preview="O"]::before { color: var(--o-color); }
+
+    /* v5：落子彈跳動畫（剛下的那格） */
+    @keyframes bounceIn {
+      0%   { transform: scale(0); }
+      60%  { transform: scale(1.15); }
+      100% { transform: scale(1); }
+    }
+    .cell.just-placed {
+      animation: bounceIn 0.3s ease-out;
+    }
+
+    /* v5：勝利線高亮（背景變色 + 線條）*/
+    .cell.winning-line {
+      background-color: var(--win-bg) !important;
+      position: relative;
+    }
+    /* 用 4 個 line class 區分方向（避免用 CSS 變數）*/
+    .cell.winning-line.line-h::after,
+    .cell.winning-line.line-v::after,
+    .cell.winning-line.line-d1::after,
+    .cell.winning-line.line-d2::after {
+      content: '';
+      position: absolute;
+      background: var(--win-line);
+      pointer-events: none;
+      z-index: 1;
+    }
+    /* 水平線：橫貫整列 */
+    .cell.winning-line.line-h::after {
+      top: 50%; left: -10px;
+      width: calc(100% + 20px);
+      height: 4px;
+      transform: translateY(-50%);
+      border-radius: 2px;
+    }
+    /* 垂直線：縱貫整欄 */
+    .cell.winning-line.line-v::after {
+      left: 50%; top: -10px;
+      height: calc(100% + 20px);
+      width: 4px;
+      transform: translateX(-50%);
+      border-radius: 2px;
+    }
+    /* 主對角線（0,4,8）：用 transform: rotate(45deg) 的橫線 */
+    .cell.winning-line.line-d1::after {
+      top: 50%; left: -10px;
+      width: calc(100% + 20px);
+      height: 4px;
+      transform: translateY(-50%) rotate(45deg);
+      transform-origin: center;
+      border-radius: 2px;
+    }
+    /* 副對角線（2,4,6）：用 rotate(-45deg) 的橫線 */
+    .cell.winning-line.line-d2::after {
+      top: 50%; left: -10px;
+      width: calc(100% + 20px);
+      height: 4px;
+      transform: translateY(-50%) rotate(-45deg);
+      transform-origin: center;
+      border-radius: 2px;
+    }
+    button.action {
+      font-size: 16px; padding: 8px 20px;
+      border: 1px solid var(--border); background: var(--btn-bg); color: var(--btn-text);
+      cursor: pointer; font-family: inherit; border-radius: 4px;
+    }
+    button.action:hover { background: var(--btn-hover); }
+    .controls { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; justify-content: center; }
+    .mode, .difficulty { display: flex; gap: 4px; }
+    .mode-btn {
+      font-size: 14px; padding: 6px 14px;
+      border: 1px solid var(--border); background: var(--btn-bg); color: var(--btn-text);
+      cursor: pointer; font-family: inherit; border-radius: 4px;
+    }
+    .mode-btn:hover:not(.selected) { background: var(--btn-hover); }
+    .mode-btn.selected {
+      background: var(--accent); color: var(--accent-text); border-color: var(--accent);
+    }
+    .diff-btn {
+      font-size: 14px; padding: 6px 14px;
+      border: 1px solid var(--border); background: var(--btn-bg); color: var(--btn-text);
+      cursor: pointer; font-family: inherit; border-radius: 4px;
+    }
+    .diff-btn:hover:not(.selected) { background: var(--btn-hover); }
+    .diff-btn.selected {
+      background: var(--accent); color: var(--accent-text); border-color: var(--accent);
+    }
+    .hidden { display: none; }
+    .cell .score-overlay {
+      position: absolute;
+      bottom: 2px; right: 4px;
+      font-size: 11px; color: var(--score-overlay);
+      pointer-events: none;
+    }
+    .cell { position: relative; }
+    .cell.chosen { box-shadow: 0 0 0 3px var(--accent) inset; }
+
+    /* v10：AI 思考進度條（hard 模式專用） */
+    #ai-progress {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      min-height: 50px;   /* 預留空間，避免出現時棋盤跳動 */
+    }
+    #ai-progress.hidden { display: none; }
+    #ai-progress-label {
+      font-size: 13px; color: var(--muted);
+    }
+    #ai-progress-track {
+      width: 248px;     /* 比棋盤（3*80 + 2*4 = 248）略寬，視覺一致 */
+      height: 6px;
+      background: var(--cell-bg);
+      border-radius: 3px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    #ai-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 0.05s linear;   /* 配合 rAF 不要 transition，但保留平滑 fallback */
+      border-radius: 3px;
+    }
+
+    #minimax-info {
+      font-size: 13px; color: var(--minimax-text); min-height: 40px;
+      max-width: 260px; text-align: center; line-height: 1.5;
+    }
+    .replay-controls {
+      display: flex; gap: 6px; align-items: center; justify-content: center;
+      flex-wrap: wrap;
+    }
+    .replay-controls button {
+      font-size: 13px; padding: 5px 10px;
+      border: 1px solid var(--border); background: var(--btn-bg); color: var(--btn-text);
+      cursor: pointer; font-family: inherit; border-radius: 3px;
+    }
+    .replay-controls button:hover:not(:disabled) { background: var(--btn-hover); }
+    .replay-controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #replay-status { font-size: 13px; color: var(--muted); }
+    #replay-result { font-size: 14px; font-weight: bold; }
+
+    /* v7：主題選擇器（標題下方獨立一行） */
+    .theme-row {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      justify-content: center;
+    }
+    .theme-row .label { font-size: 13px; color: var(--muted); }
+    .theme-btn {
+      width: 36px; height: 28px; padding: 0;
+      border: 2px solid var(--border); border-radius: 4px;
+      cursor: pointer; font-family: inherit; font-size: 11px;
+      font-weight: bold; color: var(--text);
+    }
+    .theme-btn:hover:not(.selected) { opacity: 0.8; }
+    .theme-btn.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent);
+    }
+    /* 4 套主題的色塊預覽（用純 inline-style 在 JS 注入，這裡給 fallback class 色） */
+    .theme-btn[data-theme-value="default"] { background: #f0f0f0; color: #1e6fff; }
+    .theme-btn[data-theme-value="dark"]    { background: #1a1a1a; color: #5a9aff; }
+    .theme-btn[data-theme-value="ocean"]   { background: #cce5ff; color: #0066aa; }
+    .theme-btn[data-theme-value="sunset"]  { background: #ffe0c4; color: #cc5500; }
+
+    /* v8：靜音切換按鈕（用 emoji 圖示，不用 SVG/icon font 維持零依賴） */
+    .mute-btn {
+      margin-left: auto;   /* 推到主題列右側 */
+      width: 36px; height: 28px; padding: 0;
+      border: 1px solid var(--border); border-radius: 4px;
+      background: var(--btn-bg); color: var(--btn-text);
+      cursor: pointer; font-family: inherit; font-size: 16px;
+      line-height: 1;
+    }
+    .mute-btn:hover { background: var(--btn-hover); }
+    .mute-btn.muted { opacity: 0.55; }   /* 靜音時視覺淡化 */
+  </style>
+</head>
+<body>
+  <h1>井字過三關</h1>
+  <!-- v7：主題選擇器 + v8 靜音（按鈕由 JS 從 VALID_THEMES 動態產生） -->
+  <div class="theme-row" id="theme-row">
+    <span class="label">主題：</span>
+    <!-- 主題按鈕由 buildThemeButtons() 動態插入，避免「加主題要改 HTML+CSS+JS 3 處」的 shotgun surgery -->
+    <button class="mute-btn" id="mute-btn" title="切換音效">🔊</button>
+  </div>
+  <div class="status" id="status">點擊「開始遊戲」</div>
+  <div class="board" id="board"></div>
+  <div class="controls">
+    <div class="mode" id="mode">
+      <button class="mode-btn selected" data-mode="pve">單人</button>
+      <button class="mode-btn" data-mode="pvp">雙人</button>
+    </div>
+    <div class="difficulty" id="difficulty">
+      <button class="diff-btn selected" data-difficulty="easy">簡單</button>
+      <button class="diff-btn" data-difficulty="hard">困難</button>
+    </div>
+    <button class="action" id="action-btn">開始遊戲</button>
+    <button class="action hidden" id="replay-btn">復盤</button>
+  </div>
+  <!-- v10：AI 思考進度條（hard 模式才會顯示，900ms 走完） -->
+  <div id="ai-progress" class="hidden" role="progressbar" aria-label="AI 思考中" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <div id="ai-progress-label">AI 分析中…</div>
+    <div id="ai-progress-track">
+      <div id="ai-progress-fill"></div>
+    </div>
+  </div>
+  <div id="minimax-info" class="hidden"></div>
+  <div id="replay-panel" class="hidden">
+    <div id="replay-result"></div>
+    <div class="replay-controls">
+      <button id="replay-prev-game">◀ 上一局</button>
+      <button id="replay-prev-step">◀ 上一步</button>
+      <button id="replay-play">▶ 播放</button>
+      <button id="replay-next-step">下一步 ▶</button>
+      <button id="replay-next-game">下一局 ▶</button>
+    </div>
+    <div id="replay-status">第 1/1 局 · 第 0/0 步</div>
+    <button class="action" id="replay-exit">回到新局</button>
+  </div>
+  <div class="score" id="score"></div>
+
+  <!--
+    純邏輯層：game-inline.js 是從 game.js 自動 build 出的瀏覽器版。
+    game.js 是 Node 測試的單一真實來源，build.js 把 export 拿掉產生 game-inline.js。
+    改 game.js → 跑 `node build.js` → game-inline.js 更新。
+  -->
+  <script src="./game-inline.js"></script>
+
+  <script>
+    // ===== 狀態 =====
+    const PLAYER = 'X';
+    const AI = 'O';
+    const DIFFICULTY_KEY = 'tic-tac-toe-difficulty';
+    const VALID_DIFFICULTIES = ['easy', 'hard'];
+    const AI_THINK_DELAY_MS = { easy: 500, hard: 1000 };
+    const MODE_KEY = 'tic-tac-toe-mode';
+    const VALID_MODES = ['pve', 'pvp'];
+
+    let board = Array(9).fill('');
+    let playerSide = PLAYER;
+    let gameOver = true;
+    let score = loadScore(localStorage);
+    let difficulty = loadDifficulty();
+    let mode = loadMode();
+    let theme = loadTheme(localStorage);
+    let muted = loadMute(localStorage);  // v8：音效靜音旗標
+
+    // ===== v3：復盤 + minimax 視覺化 =====
+    const REPLAYS_KEY = 'tic-tac-toe-replays';
+    const MAX_REPLAYS = 5;
+    const REPLAY_STEP_MS = 1000;
+
+    // 當局棋譜：[{board, move, player, aiScores?}]
+    // aiScores 只有 AI 步且 hard 模式才有
+    let history = [];
+    // 歷史局（最多 MAX_REPLAYS 局）
+    let replays = loadReplays();
+    // 復盤模式狀態
+    let replayMode = false;
+    let replayGameIdx = 0;     // 當前顯示第幾局
+    let replayStepIdx = 0;     // 當前顯示第幾步（含第 0 步 = 起始空盤）
+    let replayTimer = null;    // 自動播放 setInterval id
+
+    function loadReplays() {
+      try {
+        const raw = localStorage.getItem(REPLAYS_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { return []; }
+    }
+
+    function saveReplays() {
+      localStorage.setItem(REPLAYS_KEY, JSON.stringify(replays));
+    }
+
+    function loadDifficulty() {
+      const stored = localStorage.getItem(DIFFICULTY_KEY);
+      return VALID_DIFFICULTIES.includes(stored) ? stored : 'easy';
+    }
+    function saveDifficulty(value) {
+      localStorage.setItem(DIFFICULTY_KEY, value);
+    }
+    function loadMode() {
+      const stored = localStorage.getItem(MODE_KEY);
+      return VALID_MODES.includes(stored) ? stored : 'pve';
+    }
+    function saveMode(value) {
+      localStorage.setItem(MODE_KEY, value);
+    }
+
+    // ===== DOM =====
+    const $board = document.getElementById('board');
+    const $status = document.getElementById('status');
+    const $action = document.getElementById('action-btn');
+    const $score = document.getElementById('score');
+    const $difficulty = document.getElementById('difficulty');
+    const $mode = document.getElementById('mode');
+    const $replayBtn = document.getElementById('replay-btn');
+    const $minimax = document.getElementById('minimax-info');
+    const $replayPanel = document.getElementById('replay-panel');
+    const $replayStatus = document.getElementById('replay-status');
+    const $replayResult = document.getElementById('replay-result');
+    const $replayPlayBtn = document.getElementById('replay-play');
+    const $themeRow = document.getElementById('theme-row');
+    const $muteBtn = document.getElementById('mute-btn');   // v8
+    const $aiProgress = document.getElementById('ai-progress');   // v10
+    const $aiProgressFill = document.getElementById('ai-progress-fill');   // v10
+
+    function syncDifficultyButton() {
+      $difficulty.querySelectorAll('.diff-btn').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.difficulty === difficulty);
+      });
+    }
+    function syncModeButton() {
+      $mode.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.mode === mode);
+      });
+      // PvP 模式隱藏難度按鈕組
+      $difficulty.style.display = mode === 'pvp' ? 'none' : '';
+    }
+    // v7：主題套用到 <body data-theme="...">
+    function applyTheme() {
+      document.body.dataset.theme = theme;
+    }
+    function syncThemeButton() {
+      $themeRow.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.themeValue === theme);
+      });
+    }
+    // v9（review refactor）：從 VALID_THEMES 動態產生按鈕，避免加主題要改 HTML+CSS+JS 3 處
+    // 主題名稱顯示用 THEME_LABELS（中文），key 來自 game.js（保證兩者同步）
+    function buildThemeButtons() {
+      const $label = $themeRow.querySelector('.label');
+      let anchor = $label;
+      for (const t of VALID_THEMES) {
+        const btn = document.createElement('button');
+        btn.className = 'theme-btn';
+        btn.dataset.themeValue = t;
+        btn.title = THEME_LABELS[t];
+        btn.textContent = THEME_LABELS[t];
+        anchor.insertAdjacentElement('afterend', btn);
+        anchor = btn;   // 下次插在剛插入的按鈕後面（保持順序）
+      }
+    }
+    // v8：靜音按鈕（🔊/🔇 切換 + 視覺淡化）
+    function syncMuteButton() {
+      $muteBtn.textContent = muted ? '🔇' : '🔊';
+      $muteBtn.classList.toggle('muted', muted);
+      $muteBtn.title = muted ? '目前靜音，點擊恢復音效' : '點擊靜音';
+    }
+    buildThemeButtons();   // 動態產生主題按鈕（v9 review refactor）
+    syncDifficultyButton();
+    syncModeButton();
+    syncThemeButton();
+    syncMuteButton();
+    applyTheme();   // 進場立刻套持久化的主題
+    showReplayButton();   // 初始化時根據難度與歷史資料顯示復盤按鈕
+
+    $difficulty.addEventListener('click', (e) => {
+      const btn = e.target.closest('.diff-btn');
+      if (!btn) return;
+      const value = btn.dataset.difficulty;
+      if (!VALID_DIFFICULTIES.includes(value)) return;
+      difficulty = value;
+      saveDifficulty(value);
+      syncDifficultyButton();
+      showReplayButton();   // 切難度可能改變復盤按鈕可見性（easy 不顯示）
+      // 不影響當前局，只影響下一局（不重置 gameOver、不清棋盤）
+    });
+
+    $mode.addEventListener('click', (e) => {
+      const btn = e.target.closest('.mode-btn');
+      if (!btn) return;
+      const value = btn.dataset.mode;
+      if (!VALID_MODES.includes(value) || value === mode) return;
+      mode = value;
+      saveMode(value);
+      syncModeButton();
+      showReplayButton();   // PvP 復盤仍顯示
+      // 不影響當前局，只影響下一局
+    });
+
+    // v7：主題切換（遊戲中可切，不中斷）
+    $themeRow.addEventListener('click', (e) => {
+      const btn = e.target.closest('.theme-btn');
+      if (!btn) return;
+      const value = btn.dataset.themeValue;
+      if (!VALID_THEMES.includes(value) || value === theme) return;
+      theme = value;
+      saveTheme(value, localStorage);
+      applyTheme();
+      syncThemeButton();
+      // 不影響當前局，只換外觀
+    });
+
+    // v8：靜音切換（🔊 ↔ 🔇）
+    $muteBtn.addEventListener('click', () => {
+      muted = !muted;
+      saveMute(muted, localStorage);
+      syncMuteButton();
+      // 切到「不靜音」時播一個確認音（讓使用者知道音效活著）
+      if (!muted) playPlace('X');
+    });
+
+    // ===== v8：Web Audio 合成（lazy-init） =====
+    // 瀏覽器政策：AudioContext 必須在使用者互動後才能創建。
+    // 所以在第一次「開始遊戲」時 init，後續所有音效都不阻塞。
+    let audioCtx = null;
+    function ensureAudio() {
+      if (audioCtx) return audioCtx;
+      try {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return null;  // 舊瀏覽器沒 Web Audio API → 安靜退化
+        audioCtx = new Ctor();
+        return audioCtx;
+      } catch { return null; }
+    }
+    // 通用 helper：建立一個帶 ADSR envelope 的振盪器（簡化版：attack + release）
+    //
+    // @param {Object} opts
+    // @param {number} opts.freq    - 振盪頻率（Hz）。落子 480-720、旋律 262-784
+    // @param {number} [opts.dur=0.12]     - 持續秒數（含 release tail）。落子 ~0.1、旋律 ~0.18-0.30
+    // @param {OscillatorType} [opts.type='sine'] - 振盪波形。sine=柔和、triangle=清脆、sawtooth=粗
+    // @param {number} [opts.volume=0.18]  - 峰值音量（0-1）。三角/sine 用 0.18、sawtooth 用 0.16（粗較刺耳）
+    // @param {number} [opts.when=0]       - 相對當下的延遲秒數。和弦第二音設 0.08、第三音設 0.16
+    function tone({ freq, dur = 0.12, type = 'sine', volume = 0.18, when = 0 }) {
+      if (muted) return;                  // 靜音旗標：完全短路
+      const ctx = ensureAudio();
+      if (!ctx) return;                   // 沒 AudioContext 就安靜退化
+      const t0 = ctx.currentTime + when;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      // envelope：快速 attack 避免 pop，short sustain，然後 release 到 0
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(volume, t0 + 0.005);  // attack 5ms
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur); // release
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+    }
+    // 落子聲：X 較高（清脆），O 較低（厚實）
+    function playPlace(symbol) {
+      if (symbol === 'X') tone({ freq: 720, type: 'triangle', dur: 0.08, volume: 0.18 });
+      else if (symbol === 'O') tone({ freq: 480, type: 'sine', dur: 0.10, volume: 0.18 });
+    }
+    // 勝利聲：三種不同旋律（玩家勝 = 上行、AI 勝 = 下行、平局 = 雙音）
+    function playResult(kind) {
+      if (kind === 'player') {
+        // 上行三和弦：C-E-G
+        tone({ freq: 523, dur: 0.18, type: 'triangle', volume: 0.22, when: 0 });
+        tone({ freq: 659, dur: 0.18, type: 'triangle', volume: 0.22, when: 0.08 });
+        tone({ freq: 784, dur: 0.30, type: 'triangle', volume: 0.22, when: 0.16 });
+      } else if (kind === 'ai') {
+        // 下行：G-E-C
+        tone({ freq: 392, dur: 0.18, type: 'sawtooth', volume: 0.16, when: 0 });
+        tone({ freq: 330, dur: 0.18, type: 'sawtooth', volume: 0.16, when: 0.10 });
+        tone({ freq: 262, dur: 0.30, type: 'sawtooth', volume: 0.16, when: 0.20 });
+      } else { // draw
+        // 平局：雙音
+        tone({ freq: 440, dur: 0.30, type: 'sine', volume: 0.18, when: 0 });
+        tone({ freq: 554, dur: 0.30, type: 'sine', volume: 0.18, when: 0 });
+      }
+    }
+
+    // ===== v10：AI 思考進度條（hard 模式專用） =====
+    // 進度條 900ms 走完，比 AI 延遲 1000ms 短 100ms — AI 真的下完時，進度條會到 95% 然後消失，視覺無縫
+    const AI_PROGRESS_TOTAL_MS = 900;
+    let aiProgressRafId = null;   // requestAnimationFrame id
+    let aiProgressStart = 0;      // 開始時間戳（performance.now()）
+
+    function startAiProgress() {
+      // 只在 hard 模式啟動
+      if (difficulty !== 'hard') return;
+      cancelAiProgress();
+      aiProgressStart = performance.now();
+      $aiProgressFill.style.width = '0%';
+      $aiProgressFill.style.transition = 'none';   // rAF 直接設 width，不靠 CSS transition
+      $aiProgress.classList.remove('hidden');
+      tickAiProgress();
+    }
+
+    function tickAiProgress() {
+      const elapsed = performance.now() - aiProgressStart;
+      const pct = calculateProgress(elapsed, AI_PROGRESS_TOTAL_MS);
+      $aiProgressFill.style.width = pct + '%';
+      $aiProgress.setAttribute('aria-valuenow', String(pct));
+      if (pct < 100) {
+        aiProgressRafId = requestAnimationFrame(tickAiProgress);
+      }
+    }
+
+    function cancelAiProgress() {
+      if (aiProgressRafId !== null) {
+        cancelAnimationFrame(aiProgressRafId);
+        aiProgressRafId = null;
+      }
+      $aiProgress.classList.add('hidden');
+      $aiProgressFill.style.width = '0%';
+      $aiProgress.setAttribute('aria-valuenow', '0');
+    }
+
+    // v5：追蹤剛下的格子（用於彈跳動畫）或復盤步
+    let justPlacedIndex = null;
+
+    function render(opts = {}) {
+      // opts.showScores: 顯示 minimax 評分覆蓋層
+      // opts.chosenIndex: 高亮該格（AI 選中的格子）
+      const showScores = !!opts.showScores;
+      const chosen = opts.chosenIndex;
+      const scores = opts.scores || [];   // Array<{index, score}>
+      const scoreMap = Object.fromEntries(scores.map(s => [s.index, s.score]));
+      // 計算 v5：winning-line、currentPlayer（for hover preview）
+      // - 真實對局：只在 gameOver 顯示
+      // - 復盤模式：只要走到終局棋盤就顯示（renderReplayStep 會把 board 設為終局狀態）
+      const winLine = (gameOver || replayMode) ? getWinningLine(board) : null;
+      const lineClass = winLine ? lineClassFor(winLine) : null;
+      // 現在輪到誰下（用棋譜長度推導，對 PvE 與 PvP 都正確）
+      const whoseTurn = nextTurnPlayer(history.length);
+      // 玩家身份符號：PvE 是固定 playerSide；PvP 依 whoseTurn（兩個都是「玩家」）
+      const currentPlayer = (mode === 'pvp') ? whoseTurn : playerSide;
+      $board.innerHTML = '';
+      board.forEach((cell, i) => {
+        const btn = document.createElement('button');
+        let classes = 'cell' + (cell ? ' ' + cell : '') + (i === chosen ? ' chosen' : '');
+        // v5：winning-line
+        if (winLine && winLine.includes(i)) classes += ' winning-line ' + lineClass;
+        // v5：just-placed（彈跳動畫）
+        if (i === justPlacedIndex) classes += ' just-placed';
+        // v5：hover 半透明預覽（空格、未終局、未復盤、AI 沒在想）
+        // bug fix：AI 思考判定要對「下一手是不是 AI」，不是對「玩家符號」
+        // 玩家是 O 且 AI 先下的場景：whoseTurn='O' = playerSide，是玩家回合，不是 AI
+        // v6：把這段邏輯搬到 game.js（isAiTurnInPvE）並加回歸測試
+        const isAiThinking = (mode === 'pve' && !gameOver && isAiTurnInPvE(playerSide, history.length));
+        if (!cell && !gameOver && !replayMode && !isAiThinking && currentPlayer) {
+          classes += ' preview';
+          btn.dataset.preview = currentPlayer;
+        }
+        btn.className = classes;
+        btn.textContent = cell;
+        btn.disabled = gameOver || cell !== '' || replayMode || isAiThinking;
+        btn.dataset.index = i;
+        if (!replayMode) btn.addEventListener('click', () => handlePlayerMove(i));
+        // minimax 評分小標
+        if (showScores && cell === '' && scoreMap[i] !== undefined) {
+          const overlay = document.createElement('span');
+          overlay.className = 'score-overlay';
+          overlay.textContent = scoreMap[i];
+          btn.appendChild(overlay);
+        }
+        $board.appendChild(btn);
+      });
+      // 動畫播完後清除 justPlacedIndex（避免下次 render 重播）
+      if (justPlacedIndex !== null) {
+        const idx = justPlacedIndex;
+        setTimeout(() => {
+          if (justPlacedIndex === idx) justPlacedIndex = null;
+        }, 300);
+      }
+      $score.textContent = `玩家勝 ${score.player} · AI 勝 ${score.ai} · 平局 ${score.draw}`;
+    }
+
+    // v5 helper：根據 3 格索引判斷線條方向
+    function lineClassFor(line) {
+      const [a, b, c] = line;
+      const set = new Set([a, b, c]);
+      // 行：[0,1,2], [3,4,5], [6,7,8]
+      if (set.has(0) && set.has(1) && set.has(2)) return 'line-h';
+      if (set.has(3) && set.has(4) && set.has(5)) return 'line-h';
+      if (set.has(6) && set.has(7) && set.has(8)) return 'line-h';
+      // 欄：[0,3,6], [1,4,7], [2,5,8]
+      if (set.has(0) && set.has(3) && set.has(6)) return 'line-v';
+      if (set.has(1) && set.has(4) && set.has(7)) return 'line-v';
+      if (set.has(2) && set.has(5) && set.has(8)) return 'line-v';
+      // 對角線
+      if (set.has(0) && set.has(4) && set.has(8)) return 'line-d1';
+      if (set.has(2) && set.has(4) && set.has(6)) return 'line-d2';
+      return '';
+    }
+
+    // ===== 遊戲流程 =====
+    $action.addEventListener('click', startNewGame);
+
+    // 復盤按鈕與控制列
+    $replayBtn.addEventListener('click', enterReplayMode);
+    document.getElementById('replay-prev-game').addEventListener('click', () => { stopReplayAuto(); replayPrevGame(); });
+    document.getElementById('replay-next-game').addEventListener('click', () => { stopReplayAuto(); replayNextGame(); });
+    document.getElementById('replay-prev-step').addEventListener('click', () => { stopReplayAuto(); replayPrevStep(); });
+    document.getElementById('replay-next-step').addEventListener('click', () => { stopReplayAuto(); replayNextStep(); });
+    $replayPlayBtn.addEventListener('click', toggleReplayAuto);
+    document.getElementById('replay-exit').addEventListener('click', exitReplayMode);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'r' || e.key === 'R') {
+        if (gameOver) startNewGame();
+        return;
+      }
+      if (gameOver) return;
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 9) handlePlayerMove(n - 1);
+    });
+
+    function startNewGame() {
+      board = Array(9).fill('');
+      history = [];
+      justPlacedIndex = null;   // v5：清除彈跳動畫旗標
+      gameOver = false;
+      $action.classList.add('hidden');
+      $replayBtn.classList.add('hidden');
+      $minimax.classList.add('hidden');
+      render();
+
+      if (mode === 'pvp') {
+        // PvP：兩位玩家輪流，沒有 AI；第一個按格子的人 = X
+        $status.textContent = 'X 方先按任一格';
+      } else {
+        // PvE：翻硬幣決定玩家身份
+        playerSide = Math.random() < 0.5 ? PLAYER : AI;
+        if (playerSide === AI) {
+          // 玩家是白方（O），AI 先手
+          $status.textContent = 'AI 思考中…';
+          startAiProgress();   // v10：hard 模式才實際啟動
+          setTimeout(aiTurn, AI_THINK_DELAY_MS[difficulty]);
+        } else {
+          $status.textContent = '輪到你（X）';
+        }
+      }
+    }
+
+    function handlePlayerMove(index) {
+      if (gameOver || board[index] !== '') return;
+
+      // 根據模式決定當前下子方
+      // - PvE：固定為 playerSide
+      // - PvP：依棋譜長度輪替（第一個點格子 = X）
+      const currentPlayer = mode === 'pvp' ? nextTurnPlayer(history.length) : playerSide;
+      board[index] = currentPlayer;
+      history.push({ board: [...board], move: index, player: currentPlayer });
+      justPlacedIndex = index;     // v5：彈跳動畫
+      playPlace(currentPlayer);    // v8：落子聲
+      render();
+
+      if (finishIfOver()) return;
+
+      if (mode === 'pve') {
+        // 換 AI
+        $status.textContent = 'AI 思考中…';
+        startAiProgress();   // v10：hard 模式才實際啟動
+        setTimeout(aiTurn, AI_THINK_DELAY_MS[difficulty]);
+      } else {
+        // PvP：告訴下一位玩家輪到
+        const next = currentPlayer === 'X' ? 'O' : 'X';
+        $status.textContent = `${next} 方落子`;
+      }
+    }
+
+    function aiTurn() {
+      if (gameOver) return;
+      const aiSide = playerSide === PLAYER ? AI : PLAYER;  // AI 永遠是玩家的對面
+
+      // hard 模式：先捕獲評分（給 minimax 視覺化用）
+      let aiScores = null;
+      if (difficulty === 'hard') {
+        aiScores = analyzeMovesForAIBoard(board, aiSide);
+      }
+
+      const move = pickAIMove(board, difficulty, aiSide);
+      board[move] = aiSide;
+      history.push({ board: [...board], move, player: aiSide, aiScores });
+      justPlacedIndex = move;     // v5：彈跳動畫
+      playPlace(aiSide);          // v8：AI 落子聲
+      render();
+
+      // hard 模式：顯示短摘要（3 秒淡出）
+      if (difficulty === 'hard' && aiScores) {
+        const bestScore = aiScores.find(s => s.index === move).score;
+        const others = aiScores.filter(s => s.index !== move).map(s => s.score);
+        const runnerUp = others.length ? Math.max(...others) : -Infinity;
+        $minimax.textContent = `AI 選了 ${move}（評分 ${bestScore}，其他最高 ${runnerUp}）`;
+        $minimax.classList.remove('hidden');
+        setTimeout(() => $minimax.classList.add('hidden'), 3000);
+      }
+
+      if (finishIfOver()) return;
+
+      cancelAiProgress();   // v10：AI 動作完成，隱藏進度條
+      $status.textContent = `輪到你（${playerSide}）`;
+    }
+
+    function finishIfOver() {
+      const winner = checkWinner(board);
+      cancelAiProgress();   // v10：任何終局場景都先關掉進度條
+      if (winner) {
+        gameOver = true;
+        if (mode === 'pve') {
+          // PvE：玩家勝 / AI 勝 + 計分
+          if (winner === playerSide) {
+            $status.textContent = '玩家勝！';
+            score.player += 1;
+            playResult('player');   // v8：玩家勝音效
+          } else {
+            $status.textContent = 'AI 勝！';
+            score.ai += 1;
+            playResult('ai');       // v8：AI 勝音效
+          }
+          saveScore(score, localStorage);
+        } else {
+          // PvP：X 勝 / O 勝，不計分
+          $status.textContent = `${winner} 方勝！`;
+          // PvP 也播「玩家勝」和弦（不論 X 或 O，都慶祝）
+          playResult('player');
+        }
+        archiveReplay();           // v3：終局時存到復盤庫
+        render();           // ← 加這行：重渲染以更新分數顯示與格子狀態
+        showActionButton('再玩一次');
+        showReplayButton();
+        return true;
+      }
+      if (board.every(cell => cell !== '')) {
+        gameOver = true;
+        $status.textContent = '平局';
+        // PvE 才計分
+        if (mode === 'pve') {
+          score.draw += 1;
+          saveScore(score, localStorage);
+        }
+        playResult('draw');        // v8：平局音效
+        archiveReplay();
+        render();           // ← 加這行
+        showActionButton('再玩一次');
+        showReplayButton();
+        return true;
+      }
+      return false;
+    }
+
+    function showActionButton(label) {
+      $action.textContent = label;
+      $action.classList.remove('hidden');
+    }
+
+    // ===== v3：棋譜存檔與復盤 =====
+    function archiveReplay() {
+      // PvE 只在 hard 模式存；PvP 不論難度都存（PvP 沒有難度概念）
+      if (mode === 'pve' && difficulty !== 'hard') return;
+      if (history.length === 0) return;
+      const winner = checkWinner(board);
+      let result;
+      if (winner) {
+        if (mode === 'pvp') result = `${winner} 勝`;
+        else if (winner === playerSide) result = '玩家勝';
+        else result = 'AI 勝';
+      } else {
+        result = '平局';
+      }
+      replays.push({
+        result,
+        mode,                                  // 'pve' or 'pvp'
+        playerSide: mode === 'pvp' ? null : playerSide,  // PvP 沒有固定玩家身份
+        history: history.map(h => ({ board: h.board, move: h.move, player: h.player, aiScores: h.aiScores || null })),
+        timestamp: Date.now()
+      });
+      while (replays.length > MAX_REPLAYS) replays.shift();
+      saveReplays();
+    }
+
+    function showReplayButton() {
+      // PvE 只在 hard 模式 + 有資料；PvP 只要有資料就顯示
+      const showable = (mode === 'pve' && difficulty === 'hard' && replays.length > 0)
+                    || (mode === 'pvp' && replays.length > 0);
+      if (showable) {
+        $replayBtn.classList.remove('hidden');
+      } else {
+        $replayBtn.classList.add('hidden');
+      }
+    }
+
+    function enterReplayMode() {
+      if (replays.length === 0) return;
+      replayMode = true;
+      replayGameIdx = replays.length - 1;  // 最新一局
+      replayStepIdx = 0;
+      $replayPanel.classList.remove('hidden');
+      $action.classList.add('hidden');
+      $replayBtn.classList.add('hidden');
+      $difficulty.style.display = 'none';
+      $minimax.classList.add('hidden');
+      renderReplayStep();
+    }
+
+    function exitReplayMode() {
+      stopReplayAuto();
+      replayMode = false;
+      $replayPanel.classList.add('hidden');
+      $difficulty.style.display = '';
+      showActionButton('開始遊戲');
+      showReplayButton();
+      render();
+    }
+
+    function renderReplayStep() {
+      const game = replays[replayGameIdx];
+      if (!game) return;
+      const stepCount = game.history.length;
+      // 第 0 步 = 起始空盤
+      if (replayStepIdx === 0) {
+        board = Array(9).fill('');
+      } else {
+        board = [...game.history[replayStepIdx - 1].board];
+      }
+      $replayStatus.textContent = `第 ${replayGameIdx + 1}/${replays.length} 局 · 第 ${replayStepIdx}/${stepCount} 步`;
+      $replayResult.textContent = `結果：${game.result}`;
+
+      // minimax overlay：走到 AI 那步且 hard 模式時顯示評分
+      const step = replayStepIdx === 0 ? null : game.history[replayStepIdx - 1];
+      const showScores = step && step.player === AI && step.aiScores;
+      if (showScores) {
+        const chosenIdx = step.move;
+        const bestScore = step.aiScores.find(s => s.index === chosenIdx).score;
+        const others = step.aiScores.filter(s => s.index !== chosenIdx).map(s => s.score);
+        const runnerUp = others.length ? Math.max(...others) : -Infinity;
+        const explanation = chosenIdx === 4 ? '中心是經典最優解'
+                          : bestScore > runnerUp ? `比次優高 ${bestScore - runnerUp} 分`
+                          : '平手選擇';
+        $minimax.innerHTML = `AI 選了 <strong>${chosenIdx}</strong>（評分 <strong>${bestScore}</strong>）<br>其他最高 ${runnerUp} · ${explanation}`;
+        $minimax.classList.remove('hidden');
+        render({ showScores: true, chosenIndex: chosenIdx, scores: step.aiScores });
+      } else {
+        $minimax.classList.add('hidden');
+        render();
+      }
+    }
+
+    function replayPrevGame() {
+      if (replayGameIdx > 0) { replayGameIdx--; replayStepIdx = 0; renderReplayStep(); }
+    }
+    function replayNextGame() {
+      if (replayGameIdx < replays.length - 1) { replayGameIdx++; replayStepIdx = 0; renderReplayStep(); }
+    }
+    function replayPrevStep() {
+      if (replayStepIdx > 0) { replayStepIdx--; renderReplayStep(); }
+    }
+    function replayNextStep() {
+      const game = replays[replayGameIdx];
+      if (game && replayStepIdx < game.history.length) { replayStepIdx++; renderReplayStep(); }
+    }
+    function stopReplayAuto() {
+      if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+      $replayPlayBtn.textContent = '▶ 播放';
+    }
+    function toggleReplayAuto() {
+      if (replayTimer) { stopReplayAuto(); return; }
+      $replayPlayBtn.textContent = '⏸ 暫停';
+      replayTimer = setInterval(() => {
+        const game = replays[replayGameIdx];
+        if (!game || replayStepIdx >= game.history.length) { stopReplayAuto(); return; }
+        replayNextStep();
+      }, REPLAY_STEP_MS);
+    }
+
+    // ===== 初始化 =====
+    render();
+  </script>
+</body>
+</html>

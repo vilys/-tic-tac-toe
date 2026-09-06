@@ -1,0 +1,12 @@
+{
+  "name": "tic-tac-toe",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "井字過三關 — 純 vanilla JS，零依賴，TDD 開發",
+  "scripts": {
+    "build": "node build.cjs",
+    "test": "node --test game.test.js build.test.js",
+    "verify": "node build.cjs && node --test game.test.js build.test.js"
+  }
+}
