@@ -149,44 +149,230 @@ Tie-breaking：多個同等最優解時**隨機選一個**，避免 AI 每次下
 
 ## 未來增強清單
 
-### 樣式類（純視覺，低風險）
+> **2026-10-31 規劃**：15 項新功能（v11 – v25），依「風險 × 價值」分四波。
+> 每項都標註 **分支名**（GitHub Desktop 直接開 branch 就能動工）、**TDD seam**（要新增的純函式簽名）、
+> **驗收標準**。照著做不必重新想設計。
+>
+> **動工順序**：Wave 1 → Wave 2 → Wave 3 → Wave 4。
+> 其中 **v20 建議優先做** —— 它專門擋「改了 `game.js` 忘了 `npm run build`」這個最常見、也最難察覺的 bug。
 
-1. **深色模式** —— 依 `prefers-color-scheme` 自動切換
-2. **主題選擇器** —— ✅ v7 已完成
-3. **移動端優化** —— 觸控體驗、小螢幕佈局
+### 波次總覽
 
-### AI / 遊戲邏輯類（需 TDD）
+| 波次 | 標題 | 項目 | 風險 | TDD |
+|---|---|---|---|---|
+| Wave 1 | 樣式與無障礙 | v11 – v13 | 極低 | 少量 |
+| Wave 2 | 遊戲邏輯 | v14 – v19 | 低 | 全部 |
+| Wave 3 | 開發者體驗 | v20 – v23 | 極低 | 少量 |
+| Wave 4 | 大型功能 | v24 – v25 | 高 | 全部 |
 
-4. **AI 思考進度條** —— ✅ v10 已完成（hard 模式 + rAF + 900ms）
-5. **半智能進階版** —— 限制 minimax 深度或加隨機度，模擬「中等」人類錯
-6. **動態難度調整** —— 根據玩家勝率自動升降難度
+---
 
-### 多人類
+### Wave 1：樣式與無障礙（純 CSS，零邏輯風險）
 
-7. **線上 PvP** —— WebRTC 或簡單 server relay
+#### v11 — 自動深色模式（跟隨系統）｜分支 `feat/auto-dark-mode`
 
-### 互動體驗
+- **價值**：使用者沒手動選主題時，自動配合作業系統的深／淺設定
+- **做法**：`VALID_THEMES` 加第 5 個值 `'auto'`；CSS 加 `[data-theme="auto"]` 區塊，
+  再加一個 `@media (prefers-color-scheme: dark)` 區塊，裡面再給一份 `[data-theme="auto"]` 的深色變數
+- **⚠️ CSS 優先級陷阱**：**不能**寫成 `@media (prefers-color-scheme: dark) { :root { ... } }`。
+  `:root` 與 `[data-theme="dark"]` 的優先級同為 (0,1,0)，media query 裡的 `:root` 因為在檔案較後面
+  會贏，導致使用者手動選的 `dark` 主題反而被系統淺色蓋掉。必須用 `[data-theme="auto"]` 當錨點
+- **TDD seam**：`loadTheme` 對 `'auto'` 要**原樣回傳**（現有白名單邏輯會把它退回 `default`）→ 加 1 個測試
+- **驗收**：系統切深色 → 重新整理 → 頁面跟著變深；手動選過主題 → 以手動為準（不再跟系統）
+- **風險**：極低 ｜ **改動檔案**：`game.js`、`game.test.js`、`tic-tac-toe.html`
 
-8. **音效** —— ✅ v8 已完成（落子 X/O、玩家勝、AI 勝、平局 + 靜音切換）
-9. **鍵盤快捷鍵擴充** —— 例如方向鍵移動 selector、Enter 確認、Esc 取消
-10. **AI 重新計時器** —— 困難 AI 思考時顯示「AI 想了 X 秒」（v3 已有部分但可精進；v10 進度條外加）
+#### v12 — 移動端優化｜分支 `feat/mobile-responsive`
 
-### 復盤 / 學習
+- **價值**：目前整份 CSS **完全沒有 `@media` 查詢**，小螢幕上格子會被擠壓，手機點格子容易誤觸
+- **做法**：
+  - `@media (max-width: 480px)`：縮小外距，棋盤改 `width: min(92vw, 360px)`
+  - 格子觸控目標 ≥ 44×44 px（Apple HIG 建議）
+  - `env(safe-area-inset-*)` 處理 iPhone 瀏海海
+  - `@media (hover: none)` 關掉 hover 預覽（觸控裝置的 hover 會「黏住」不放）
+- **驗收**：375px（iPhone SE）、390px（Pixel）、1920px（桌機）三種寬度都不破版，棋盤不超過畫面寬
+- **注意**：HTML 已有 `<meta name="viewport" content="width=device-width, initial-scale=1.0">`，不用動
+- **風險**：極低 ｜ **改動檔案**：`tic-tac-toe.html`（純 CSS，不動 JS）
 
-11. **按難度分開計分** —— 簡單勝 / 困難勝 各計一欄
-12. **勝率儀表板** —— 圖表顯示玩家在不同難度下的勝率趨勢
+#### v13 — 鍵盤導覽與無障礙｜分支 `feat/a11y-keyboard-nav`
 
-### 開發者體驗
+- **價值**：鍵盤玩家目前只能用 1–9 數字鍵落子，**無法用 Tab／方向鍵在格子間移動**；
+  status 變化也沒通知螢幕閱讀器，無障礙有明顯缺口
+- **做法**：
+  - 棋盤容器加 `role="grid"` + `aria-label="井字棋盤"`，格子加 `role="gridcell"`
+  - 方向鍵（↑↓←→）移動 focus，Enter／Space 落子，Esc 取消選取
+  - `#status` 加 `aria-live="polite"`，讓「X 贏了」「AI 思考中…」被唸出來
+  - focus 樣式用 `:focus-visible`，**不要**用 `:focus`（滑鼠點擊也會亮，不好看）
+- **TDD seam**：無（純 DOM/CSS）；若想抽邏輯則 `nextFocusIndex(current, key)` → 0-8
+- **驗收**：全程只用鍵盤可以完成一整局；螢幕閱讀器會報出每次落子與勝負
+- **風險**：低 ｜ **改動檔案**：`tic-tac-toe.html`
 
-13. **Watch mode** —— `node --watch build.cjs`，game.js 一存檔就自動 rebuild
-14. **瀏覽器 console 暴露 minimax** —— 方便進階玩家從 console 學習 AI 思路
-15. **Git pre-commit hook** —— commit 前自動跑 `npm run verify`
-16. **CI / GitHub Actions** —— push 時自動跑 53 個測試
+---
 
-### 架構改進
+### Wave 2：遊戲邏輯（每一項都有純函式 seam，100% TDD）
 
-17. **自動同步 game-inline.js** —— 用 `filewatcher` 或 `nodemon` 取代手動跑 build
-18. **多 build target** —— 如果未來加 SSR / Web Worker 版本，擴充 build.cjs 支援
+#### v14 — 中等難度 AI｜分支 `feat/medium-ai`
+
+- **價值**：現在只有「簡單（半智能）」和「困難（不可戰勝）」兩級，中間沒有過渡，難度曲線是斷的
+- **做法**：`pickAIMove` 加 `'medium'` 分支 —— minimax **深度限制 2 層** + 隨機失準
+  （在最佳分數的候選中有 30% 機率選次佳），模擬「會犯規律性錯誤」的中階玩家
+- **TDD seam**：`pickAIMove(board, 'medium', aiSide)` —— 既有簽名不變，只多一個 difficulty 值
+- **測試要點**（直接套用本 README「TDD 中的三個教訓」）：
+  - **不能**只跑一次就斷言（機率巧合會偽綠）→ 跑 100 次統計勝率
+  - medium 必須**贏得過 easy**、**輸得過 hard**（各跑 50 局）
+  - medium **不是**不可戰勝（hard 才是）→ 要找得到一個讓 medium 輸的棋譜
+- **連動**：HTML 的 `VALID_DIFFICULTIES` 加 `'medium'`、`AI_THINK_DELAY_MS` 加 medium 延遲、難度按鈕加一顆
+- **風險**：中 ｜ **改動檔案**：`game.js`、`game.test.js`、`tic-tac-toe.html`
+
+#### v15 — 悔棋｜分支 `feat/undo`
+
+- **價值**：目前落錯子只能整局重來，沒有悔棋
+- **做法**：
+  - PvE：一次退回**兩步**（玩家一步 + AI 一步），回到自己回合
+  - PvP：一次退回**一步**
+  - AI 還在思考時按悔棋 → 先取消 AI 的 `setTimeout`／rAF，避免「幽靈落子」
+- **TDD seam**：`rewindHistory(history, steps)` → 回傳 `history.slice(0, history.length - steps)`
+- **測試要點**：steps=0 → 原樣回傳；steps 大於長度 → 空陣列；不產生負長度切片
+- **風險**：低 ｜ **改動檔案**：`game.js`、`game.test.js`、`tic-tac-toe.html`
+
+#### v16 — 開局偏好（固定 X／固定 O／隨機）｜分支 `feat/player-side-preference`
+
+- **價值**：現在每局 50/50 隨機決定你是 X 還是 O，連續玩時會被隨機噁到；
+  進階玩家想固定先手來練開局
+- **做法**：`playerSide` 從「每局隨機」改成「玩家選擇 + 隨機預設」，加一個下拉選單
+- **TDD seam**：`loadPlayerSide(storage)` / `savePlayerSide(side, storage)`，
+  白名單 `['random', 'X', 'O']`，非法值退回 `'random'`（沿用 `loadTheme` 的防呆寫法）
+- **連動**：開局時若為 `'random'` 仍走現有的 50/50 邏輯，行為不變
+- **風險**：低 ｜ **改動檔案**：`game.js`、`game.test.js`、`tic-tac-toe.html`
+
+#### v17 — 分難度計分 + 勝率儀表板｜分支 `feat/stats-dashboard`
+
+- **價值**：現在計分只有「我／AI／平手」三欄，贏了 10 局簡單和贏了 10 局困難混在一起，看不出自己的成長
+- **做法**：
+  - 計分結構改為巢狀：`{ easy: {player, ai, draw}, hard: {...} }`
+  - **⚠️ 相容性**：`loadScore` 讀到舊格式（沒有 `easy`／`hard` 鍵）時要**自動升級**成新格式，
+    否則老玩家的 localStorage 計分會整個消失
+  - 儀表板：每個難度一行，顯示勝／敗／平手數與勝率百分比橫條
+- **TDD seam**：
+  - `loadScore` 對舊格式 → 自動升級（加測試）
+  - `computeStats(games)` → 純函式，算出 `{wins, losses, draws, winRate}`
+- **風險**：中（碰到 localStorage 格式遷移）｜ **改動檔案**：`game.js`、`game.test.js`、`tic-tac-toe.html`
+
+#### v18 — 完整對局紀錄｜分支 `feat/game-history`
+
+- **價值**：現在只存**最近 5 局**復盤紀錄（`MAX_REPLAYS = 5`），而且只存 hard 難度。
+  玩了一堆局之後想回顧就沒得回顧
+- **做法**：紀錄擴到 50 局、涵蓋所有難度與 PvP；
+  每局記 `{difficulty, mode, playerSide, history, winner, timestamp}`
+- **TDD seam**：`appendGame(game, list, max)` → 純函式，負責裁切到上限
+- **連動**：復盤面板的過濾條件從「只有 hard 才顯示復盤按鈕」放寬成所有難度
+- **風險**：中（localStorage 容量；50 局約幾十 KB，離 5MB 上限還很遠）
+  ｜ **改動檔案**：`game.js`、`game.test.js`、`tic-tac-toe.html`
+
+#### v19 — 開局勝率熱區圖｜分支 `feat/opening-heatmap`
+
+- **價值**：這是本專案「復盤／學習」定位的延伸 —— 直接在空格上標出「站在這裡的勝率」，
+  把 minimax 的想法視覺化給人看
+- **做法**：
+  - 內建 `OPENING_WIN_RATES` 靜態表（9 個位置在 X 先手時的勝率），不跑 minimax → 效能零負擔
+  - 空格上淡淡地印上百分比，滑過／點擊時加深
+  - 可選進階版：改用現成的 `analyzeMovesForAIBoard` 做即時評分交叉驗證
+- **TDD seam**：`getOpeningHint(board)` → 回傳每個空格的建議（純函式）
+- **注意**：勝率數字要標明是「X 先手時」的數據，別讓人誤解
+- **風險**：低 ｜ **改動檔案**：`game.js`、`game.test.js`、`tic-tac-toe.html`
+
+---
+
+### Wave 3：開發者體驗（保護「雙擊即可玩」這條紅線）
+
+#### v20 — game-inline.js 同步契約測試｜分支 `feat/build-sync-test` ⭐ 建議優先
+
+- **價值**：**這是全專案最容易中招的 bug 來源**。改了 `game.js` 忘了跑 `npm run build`，
+  測試全綠、瀏覽器跑的卻是舊程式碼，而且完全沒有任何提示
+- **做法**：
+  1. 把 `build.cjs` 裡的轉換邏輯抽成可匯出的函式：`module.exports = { transform }`
+  2. `build.test.js` 加一個測試：`transform(readFileSync('game.js'))` 的結果 === `game-inline.js` 的內容
+  3. 不同步就讓測試紅，並在錯誤訊息直接印出「跑 `npm run build`」
+- **TDD seam**：無新邏輯，但 `transform(content)` 本身要能被獨立測試
+- **⚠️ 注意**：`build.cjs` 是 CommonJS（副檔名 `.cjs`），專案是 `"type": "module"`。
+  `build.test.js` 是 ESM，要 `import { transform } from './build.cjs'` ——
+  Node 靠 cjs-module-lexer 偵測具名匯出，所以 `module.exports = { transform }` 這種寫法取得到具名匯出
+- **驗收**：手動改壞 `game-inline.js` → `npm test` 紅 → 跑 `npm run build` → 綠
+- **風險**：極低 ｜ **改動檔案**：`build.cjs`、`build.test.js`
+
+#### v21 — Watch mode｜分支 `feat/watch-mode`
+
+- **價值**：現在每改一次 `game.js` 都要手動跑 `cmd /c "npm run build"`，忘了就出事
+- **做法**：`npm run dev` → `node --watch build.cjs`。**Node 18+ 內建 `--watch`，零依賴**，
+  不需要舊版 README 寫的 `filewatcher`／`nodemon`
+- **TDD seam**：無
+- **驗收**：開著 `npm run dev` 存檔 `game.js` → `game-inline.js` 自動更新 → 重整瀏覽器即見
+- **風險**：極低 ｜ **改動檔案**：`package.json`、`README.md`
+
+#### v22 — CI / GitHub Actions｜分支 `feat/github-actions-ci`
+
+- **價值**：專案已經推到 GitHub 了，CI 是接下來最自然的投資 —— push 就自動驗證所有測試
+- **做法**：新增 `.github/workflows/ci.yml`，在 push / PR 時跑 `npm run verify`（Node 20）
+- **TDD seam**：無
+- **驗收**：GitHub 頁面 Actions 分頁顯示綠燈；故意推一個壞掉的 commit 應該紅
+- **風險**：極低 ｜ **改動檔案**：`.github/workflows/ci.yml`
+
+#### v23 — Git pre-commit hook｜分支 `feat/precommit-hook`
+
+- **價值**：在 commit 之前就擋下壞掉的邏輯，不讓它進到 main
+- **做法**：加 `scripts/install-hooks.js`（用 Node 寫 `.git/hooks/pre-commit`，內容呼叫 `npm run verify`），
+  避免用 shell 腳本造成 Windows 相容性問題
+- **TDD seam**：無
+- **⚠️ 注意**：GitHub Desktop 內建的 Git 也讀同一份 `.git/hooks/`，所以這個 hook 對 GUI 提交同樣有效
+- **風險**：極低 ｜ **改動檔案**：`scripts/install-hooks.js`、`package.json`
+
+---
+
+### Wave 4：大型功能（動工前先 grilling）
+
+#### v24 — 線上 PvP｜分支 `feat/online-pvp`
+
+- **價值**：README 原本列的「多人類」項目 —— 跟朋友連線對弈
+- **做法**：WebRTC DataChannel 做 P2P，透過手動交換 offer／answer（不需要 signaling server）
+- **TDD seam**：`serializeState` / `applyRemoteState` —— 網路傳輸前的狀態編解碼純函式要先測
+- **⚠️ 風險最高**：跨瀏覽器相容性、斷線重連、同步競態。
+  **必須先 grilling 確定範圍**，再決定要不要退化成「回合制信件式對弈」（純文字、不共時）這種簡單版
+- **前置**：v13（鍵盤／DOM 焦點）與 v16（模式切換）的架構要先穩
+
+#### v25 — 動態難度調整｜分支 `feat/adaptive-difficulty`
+
+- **價值**：玩家連勝時自動升級、連敗時降級，讓難度貼合玩家實力
+- **做法**：以最近 N 局的勝率為準，跨越門檻就切換難度
+- **TDD seam**：`suggestDifficulty(recentResults, currentDifficulty)` → 回傳 `'easy' | 'medium' | 'hard'`
+- **⚠️ 設計陷阱**：調整太頻繁會讓玩家挫折（「我明明贏了卻變難了」）。
+  需要明確規則：**連續 3 勝才升級、連續 3 敗才降級**，且調整時要明確提示玩家
+- **前置**：v14（medium 難度）與 v18（對局紀錄）要先完成，否則沒有 medium 可調、沒有紀錄可分析
+
+---
+
+### 舊待辦 → 新路線圖 映射
+
+原清單的 18 項待辦，現在對應到上面：
+
+| 舊編號 | 項目 | 新位置 |
+|---|---|---|
+| 1 | 深色模式（`prefers-color-scheme`） | → **v11** |
+| 2 | 主題選擇器 | ✅ v7 已完成 |
+| 3 | 移動端優化 | → **v12** |
+| 4 | AI 思考進度條 | ✅ v10 已完成 |
+| 5 | 半智能進階版 | → **v14**（正式命名為 medium 難度） |
+| 6 | 動態難度調整 | → **v25** |
+| 7 | 線上 PvP | → **v24** |
+| 8 | 音效 | ✅ v8 已完成 |
+| 9 | 鍵盤快捷鍵擴充 | → **v13**（併入無障礙） |
+| 10 | AI 重新計時器 | → 併入 **v19**／v10 進度條的延伸 |
+| 11 | 按難度分開計分 | → **v17** |
+| 12 | 勝率儀表板 | → **v17**（同批做） |
+| 13 | Watch mode | → **v21**（改用內建 `--watch`） |
+| 14 | 瀏覽器 console 暴露 minimax | → 併入 **v19**（熱區圖的 debug 開關） |
+| 15 | Git pre-commit hook | → **v23** |
+| 16 | CI / GitHub Actions | → **v22** |
+| 17 | 自動同步 game-inline.js | → **v20**（用契約測試取代 watcher） |
+| 18 | 多 build target | → 暫緩（v24 若需要再說） |
 
 ### 已完成的增強（從這個清單移走）
 
@@ -232,7 +418,7 @@ Copilot 就能從上次中斷的地方接。
 | 主題選擇器 | ✅ 4 套配色 + localStorage 持久化 |
 | 音效 | ✅ 落子 X/O + 3 種終局旋律 + 🔊/🔇 切換 |
 | AI 思考進度條 | ✅ hard 模式 rAF 動畫（v10） |
-| 18 項未來增強清單（3 完成、15 待做） | 見上方「未來增強清單」 |
+| v11 – v25 路線圖 | 📋 15 項待做，分四波 —— 見上方「未來增強清單」 |
 | 已安裝的 skill | [`.github/skills/`](../../.github/skills/) 7 個（移植自 mattpocock/skills）|
 
 ### 開發流程提醒
@@ -241,6 +427,18 @@ Copilot 就能從上次中斷的地方接。
 2. **加新功能** → 先 `grilling`（skill 自動觸發）→ 再 TDD → 端對端測試
 3. **修 bug** → 用 `diagnosing-bugs` skill 的紅綠假設循環
 4. **永遠不能破壞**：雙擊 HTML 即可玩（file:// 載入限制）
+
+### Branch 開發流程（v11+ 新功能）
+
+1. **切出分支**：GitHub Desktop → `Branch` → `New branch`，用路線圖上寫好的分支名
+   （例：`feat/medium-ai`、`feat/mobile-responsive`）
+2. **在分支上開發**：改 `game.js` → 改 `game.test.js` → `cmd /c "npm run verify"`
+3. **Commit + Push**：輸入 commit message → `Commit to <分支名>` → `Publish branch`
+4. **合併**：到 GitHub 開 Pull Request → 合併回 `main` → 刪掉功能分支
+5. **`main` 永遠保持「雙擊就玩」的穩定版**；要玩新功能就 checkout 對應分支
+
+> 單一資料夾的雙擊行為，永遠對應「目前 checkout 的分支」——
+> 切回 `main` 玩穩定版，切到 `feat/xxx` 玩新功能版。
 
 ### 環境快速複習
 
@@ -251,7 +449,14 @@ Copilot 就能從上次中斷的地方接。
 
 ### 推薦的下一步
 
-最簡單的增強：**移動端優化**（純 CSS 媒體查詢，不影響邏輯）或**深色模式**（純 CSS + `prefers-color-scheme`，零 JS）。
+**第一個 feature branch 建議做 v20（`feat/build-sync-test`）** —— 它是純邏輯層的小改動，
+但能從此根除「改了 `game.js` 忘了 `npm run build`」這個專案最常見的坑，而且做完之後
+v11 – v19 每一項新功能都會受惠。
+
+想先看得到效果的就做 **v12（`feat/mobile-responsive`）** —— 純 CSS 媒體查詢，不動任何 JS 邏輯，
+風險最低，而且現在這份 CSS 連一條 `@media` 都沒有。
+
+完整 15 項的路線圖、分支名與 TDD seam 都在上方「**未來增強清單**」。
 
 ---
 
